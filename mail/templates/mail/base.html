@@ -9,7 +9,10 @@
 <body>
 <div class="app">
     <aside class="sidebar">
-        <a class="brand" href="{% url 'mail:index' %}">Почта&nbsp;<span>Яндекс</span></a>
+        <a class="brand" href="{% url 'mail:index' %}">
+            <span class="brand-mark">П</span>
+            <span class="brand-name">Почта <em>Яндекс</em></span>
+        </a>
 
         {% if email %}
             <div class="account" title="{{ email }}">{{ email }}</div>
@@ -19,7 +22,9 @@
         <nav class="folders">
             {% for item in folders %}
                 <a class="folder{% if item.name == folder %} active{% endif %}"
-                   href="{% url 'mail:index' %}?folder={{ item.name|urlencode }}">{{ item.title }}</a>
+                   href="{% url 'mail:index' %}?folder={{ item.name|urlencode }}">
+                    <span class="folder-dot"></span>{{ item.title }}
+                </a>
             {% endfor %}
         </nav>
 
@@ -33,9 +38,16 @@
         </div>
     </aside>
 
-    <main class="content">
-        {% block content %}{% endblock %}
-    </main>
+    <div class="workspace">
+        <header class="topbar">
+            <div class="topbar-title">{% block topbar_title %}Почта{% endblock %}</div>
+            <div class="topbar-actions">{% block topbar_actions %}{% endblock %}</div>
+        </header>
+
+        <main class="content">
+            {% block content %}{% endblock %}
+        </main>
+    </div>
 </div>
 </body>
 </html>

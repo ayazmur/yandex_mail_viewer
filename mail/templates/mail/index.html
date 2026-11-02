@@ -1,48 +1,75 @@
 {% extends 'mail/base.html' %}
 
 {% block title %}{{ folder_title }} — Почта{% endblock %}
+{% block topbar_title %}{{ folder_title }}{% endblock %}
+
+{% block topbar_actions %}
+    <a class="btn btn-ghost" href="{% url 'mail:index' %}?folder={{ folder|urlencode }}">Обновить</a>
+    <a class="btn btn-primary" href="{% url 'mail:compose' %}">Написать</a>
+{% endblock %}
 
 {% block content %}
-<header class="page-head">
-    <div>
-        <h1>{{ folder_title }}</h1>
-        <div class="muted small">Всего писем: {{ total }}</div>
-    </div>
-    <a class="btn btn-primary" href="{% url 'mail:compose' %}">Написать</a>
-</header>
-
 {% if flash %}<div class="alert alert-success">{{ flash }}</div>{% endif %}
 {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
-
-{% if messages %}
-    <div class="mail-list">
-        {% for item in messages %}
-            <a class="mail-row"
-               href="{% url 'mail:message' item.uid %}?folder={{ folder|urlencode }}&page={{ page }}">
-                <span class="mail-from">{{ item.from }}</span>
-                <span class="mail-subject">{{ item.subject }}</span>
-                <span class="mail-date">{{ item.date }}</span>
-            </a>
-        {% endfor %}
+{% if limited %}
+    <div class="alert alert-info">
+        Показаны последние {{ limit }} писем из {{ total_messages }} — более старые не склеены в треды.
     </div>
-{% elif not error %}
-    <div class="empty">В этой папке нет писем.</div>
 {% endif %}
+
+<div class="list-meta">
+    Тредов: {{ total_threads }} · писем: {{ total_messages }}
+</div>
+
+<div class="thread-list">
+    {% for thread in threads %}
+        <details class="thread">
+            <summary class="thread-row">
+                <span class="chev">›</span>
+                <span class="avatar color-{{ thread.latest.color }}">{{ thread.latest.avatar }}</span>
+                <span class="thread-main">
+                    <span class="thread-subject{% if thread.unread %} is-unread{% endif %}">
+                        {{ thread.subject }}
+                        {% if thread.count > 1 %}<span class="badge">{{ thread.count }}</span>{% endif %}
+                    </span>
+                    <span class="thread-preview">
+                        {{ thread.latest.from_name|default:thread.latest.from_addr }}
+                        {% if thread.unread %}<span class="dot"></span>{% endif %}
+                    </span>
+                </span>
+                <span class="thread-date">{{ thread.latest.date }}</span>
+            </summary>
+
+            <div class="thread-messages">
+                {% for item in thread.messages %}
+                    <a class="message-row{% if item.unread %} is-unread{% endif %}"
+                       href="{% url 'mail:message' item.uid %}?folder={{ folder|urlencode }}&page={{ page }}">
+                        <span class="message-from">{{ item.from_name|default:item.from_addr }}</span>
+                        <span class="message-subject">
+                            {{ item.subject|default:'(без темы)' }}
+                        </span>
+                        <span class="message-date">{{ item.date }}</span>
+                    </a>
+                {% endfor %}
+            </div>
+        </details>
+    {% empty %}
+        {% if not error %}<div class="empty">В этой папке нет писем.</div>{% endif %}
+    {% endfor %}
+</div>
 
 {% if pages > 1 %}
     <nav class="pager">
         {% if page > 1 %}
-            <a class="btn btn-secondary"
-               href="?folder={{ folder|urlencode }}&page={{ page|add:'-1' }}">← Новее</a>
+            <a class="btn btn-ghost" href="?folder={{ folder|urlencode }}&page={{ page|add:'-1' }}">← Новее</a>
         {% else %}
-            <span class="btn btn-secondary disabled">← Новее</span>
+            <span class="btn btn-ghost disabled">← Новее</span>
         {% endif %}
         <span class="pager-info">Страница {{ page }} из {{ pages }}</span>
         {% if page < pages %}
-            <a class="btn btn-secondary"
-               href="?folder={{ folder|urlencode }}&page={{ page|add:'1' }}">Старее →</a>
+            <a class="btn btn-ghost" href="?folder={{ folder|urlencode }}&page={{ page|add:'1' }}">Старее →</a>
         {% else %}
-            <span class="btn btn-secondary disabled">Старее →</span>
+            <span class="btn btn-ghost disabled">Старее →</span>
         {% endif %}
     </nav>
 {% endif %}

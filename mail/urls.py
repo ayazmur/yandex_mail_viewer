@@ -13,4 +13,5 @@ urlpatterns = [
     path('compose/', views.compose_view, name='compose'),
     path('message/<str:uid>/', views.message_view, name='message'),
     path('raw/<str:uid>/', views.raw_message_view, name='raw'),
+    path('attachment/<str:uid>/<int:index>/', views.attachment_view, name='attachment'),
 ]

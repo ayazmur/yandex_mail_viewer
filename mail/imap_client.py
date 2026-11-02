@@ -1,7 +1,4 @@
-"""Тонкая обёртка над imaplib для почты Яндекса.
-
-Только чтение: вход, папки, заголовки писем, тело письма.
-"""
+"""Тонкая обёртка над imaplib для почты Яндекса."""
 
 from __future__ import annotations
 
@@ -12,20 +9,22 @@ import logging
 import re
 from email.header import decode_header, make_header
 from email.message import Message
-from email.utils import parsedate_to_datetime
-from typing import Any
+from email.utils import parseaddr, parsedate_to_datetime
+from typing import Any, Iterator
 
 IMAP_HOST = 'imap.yandex.ru'
 IMAP_PORT = 993
+FETCH_BATCH_SIZE = 200
 
 logger = logging.getLogger(__name__)
 
 _UTF7_BLOCK_RE = re.compile(r'&([^&-]*)-')
 _FOLDER_RE = re.compile(r'^\((?P<flags>[^)]*)\)\s+"(?P<delim>[^"]*)"\s+(?P<name>.*)$')
 _UID_RE = re.compile(rb'UID\s+(\d+)')
+_FLAGS_RE = re.compile(rb'FLAGS \(([^)]*)\)')
 
 HEADER_FIELDS = '(FROM TO SUBJECT DATE)'
-HEADER_QUERY = f'(UID BODY.PEEK[HEADER.FIELDS {HEADER_FIELDS}])'
+HEADER_QUERY = f'(UID FLAGS BODY.PEEK[HEADER.FIELDS {HEADER_FIELDS}])'
 
 
 class MailError(Exception):
@@ -210,10 +209,71 @@ def _format_date(value: str | None) -> str:
         return value
 
 
-def fetch_headers_page(
-    conn: imaplib.IMAP4_SSL, page: int, page_size: int
-) -> tuple[list[dict[str, str]], int]:
-    """Заголовки одной страницы писем, новые сверху. Возвращает (письма, всего)."""
+def _date_ts(value: str | None) -> int:
+    if not value:
+        return 0
+    try:
+        parsed = parsedate_to_datetime(value)
+        if parsed is None:
+            return 0
+        return int(parsed.timestamp())
+    except (TypeError, ValueError, OSError, OverflowError):
+        return 0
+
+
+def _address(value: str | None) -> tuple[str, str]:
+    name, address = parseaddr(value or '')
+    return _decode_header_value(name).strip(), (address or '').strip()
+
+
+def _message_summary(uid: str, msg: Message, flags: bytes) -> dict[str, Any]:
+    name, address = _address(msg.get('From'))
+    return {
+        'uid': uid,
+        'from': _decode_header_value(msg.get('From')),
+        'from_name': name,
+        'from_addr': address,
+        'to': _decode_header_value(msg.get('To')),
+        'subject': _decode_header_value(msg.get('Subject')),
+        'date': _format_date(msg.get('Date')),
+        'date_ts': _date_ts(msg.get('Date')),
+        'unread': b'\\Seen' not in (flags or b''),
+    }
+
+
+def _fetch_headers_batch(
+    conn: imaplib.IMAP4_SSL, uids: list[str]
+) -> dict[str, tuple[bytes, bytes]]:
+    if not uids:
+        return {}
+    try:
+        status, parts = conn.uid('fetch', ','.join(uids), HEADER_QUERY)
+    except (imaplib.IMAP4.error, OSError) as exc:
+        raise MailError('Не удалось загрузить заголовки писем.') from exc
+    if status != 'OK':
+        raise MailError('Не удалось загрузить заголовки писем.')
+
+    by_uid: dict[str, tuple[bytes, bytes]] = {}
+    for part in parts or []:
+        if not (isinstance(part, tuple) and len(part) >= 2):
+            continue
+        meta, payload = part[0], part[1]
+        if not isinstance(payload, bytes):
+            continue
+        meta_bytes = meta if isinstance(meta, bytes) else str(meta).encode('utf-8', 'replace')
+        match = _UID_RE.search(meta_bytes)
+        if not match:
+            continue
+        flags_match = _FLAGS_RE.search(meta_bytes)
+        flags = flags_match.group(1) if flags_match else b''
+        by_uid[match.group(1).decode('ascii', 'ignore')] = (payload, flags)
+    return by_uid
+
+
+def fetch_folder_headers(
+    conn: imaplib.IMAP4_SSL, limit: int | None = None
+) -> tuple[list[dict[str, Any]], int]:
+    """Все письма папки (новые сверху) в пределах limit. Возвращает (письма, всего)."""
     try:
         status, data = conn.uid('search', None, 'ALL')
     except (imaplib.IMAP4.error, OSError) as exc:
@@ -225,46 +285,23 @@ def fetch_headers_page(
     all_uids = raw_uids.split() if isinstance(raw_uids, bytes) else []
     total = len(all_uids)
 
-    newest_first = list(reversed(all_uids))
-    start = max(0, (page - 1) * page_size)
-    page_uids = [uid.decode('ascii', errors='ignore') for uid in newest_first[start:start + page_size]]
-    page_uids = [uid for uid in page_uids if uid]
-    if not page_uids:
-        return [], total
+    newest_first = [
+        uid.decode('ascii', 'ignore') for uid in reversed(all_uids) if uid
+    ]
+    newest_first = [uid for uid in newest_first if uid]
+    if limit is not None:
+        newest_first = newest_first[:limit]
 
-    try:
-        status, parts = conn.uid('fetch', ','.join(page_uids), HEADER_QUERY)
-    except (imaplib.IMAP4.error, OSError) as exc:
-        raise MailError('Не удалось загрузить заголовки писем.') from exc
-    if status != 'OK':
-        raise MailError('Не удалось загрузить заголовки писем.')
-
-    headers_by_uid: dict[str, bytes] = {}
-    for part in parts or []:
-        if not (isinstance(part, tuple) and len(part) >= 2):
-            continue
-        meta, payload = part[0], part[1]
-        if not isinstance(payload, bytes):
-            continue
-        meta_bytes = meta if isinstance(meta, bytes) else str(meta).encode('utf-8', 'replace')
-        match = _UID_RE.search(meta_bytes)
-        if not match:
-            continue
-        headers_by_uid[match.group(1).decode('ascii', errors='ignore')] = payload
-
-    messages: list[dict[str, str]] = []
-    for uid in page_uids:
-        payload = headers_by_uid.get(uid)
-        if payload is None:
-            continue
-        msg = email.message_from_bytes(payload)
-        messages.append({
-            'uid': uid,
-            'from': _decode_header_value(msg.get('From')),
-            'to': _decode_header_value(msg.get('To')),
-            'subject': _decode_header_value(msg.get('Subject')) or '(без темы)',
-            'date': _format_date(msg.get('Date')),
-        })
+    messages: list[dict[str, Any]] = []
+    for start in range(0, len(newest_first), FETCH_BATCH_SIZE):
+        batch = newest_first[start:start + FETCH_BATCH_SIZE]
+        fetched = _fetch_headers_batch(conn, batch)
+        for uid in batch:
+            item = fetched.get(uid)
+            if item is None:
+                continue
+            payload, flags = item
+            messages.append(_message_summary(uid, email.message_from_bytes(payload), flags))
     return messages, total
 
 
@@ -295,7 +332,35 @@ def _extract_bodies(msg: Message) -> tuple[str, str]:
     return '\n\n'.join(text_parts).strip(), '\n'.join(html_parts).strip()
 
 
-def fetch_message(conn: imaplib.IMAP4_SSL, uid: str) -> dict[str, Any]:
+def _safe_filename(value: str | None) -> str:
+    name = (value or '').replace('\\', '/').split('/')[-1]
+    name = ''.join(ch for ch in name if ch.isprintable()).strip().strip('.')
+    return (name or 'attachment')[:200]
+
+
+def _iter_attachment_parts(msg: Message) -> Iterator[tuple[int, Message, str]]:
+    for index, part in enumerate(msg.walk()):
+        if part.is_multipart():
+            continue
+        disposition = (part.get('Content-Disposition') or '').lower()
+        is_attachment = 'attachment' in disposition
+        filename = part.get_filename()
+        content_type = part.get_content_type()
+        if filename:
+            filename = _decode_header_value(filename)
+        if not filename and not is_attachment:
+            continue
+        if not is_attachment and content_type in ('text/plain', 'text/html'):
+            continue
+        yield index, part, _safe_filename(filename)
+
+
+def _part_size(part: Message) -> int:
+    payload = part.get_payload(decode=True)
+    return len(payload) if isinstance(payload, bytes) else 0
+
+
+def _fetch_raw_message(conn: imaplib.IMAP4_SSL, uid: str) -> Message:
     try:
         status, parts = conn.uid('fetch', uid, '(BODY.PEEK[])')
     except (imaplib.IMAP4.error, OSError) as exc:
@@ -310,16 +375,47 @@ def fetch_message(conn: imaplib.IMAP4_SSL, uid: str) -> dict[str, Any]:
             break
     if not raw:
         raise MailError('Письмо не найдено или пустое.')
+    return email.message_from_bytes(raw)
 
-    msg = email.message_from_bytes(raw)
+
+def fetch_message(conn: imaplib.IMAP4_SSL, uid: str) -> dict[str, Any]:
+    msg = _fetch_raw_message(conn, uid)
     text, html = _extract_bodies(msg)
+    name, address = _address(msg.get('From'))
+    attachments = [
+        {
+            'index': index,
+            'filename': filename,
+            'content_type': part.get_content_type(),
+            'size': _part_size(part),
+        }
+        for index, part, filename in _iter_attachment_parts(msg)
+    ]
     return {
         'uid': uid,
         'from': _decode_header_value(msg.get('From')),
+        'from_name': name,
+        'from_addr': address,
         'to': _decode_header_value(msg.get('To')),
         'cc': _decode_header_value(msg.get('Cc')),
-        'subject': _decode_header_value(msg.get('Subject')) or '(без темы)',
+        'subject': _decode_header_value(msg.get('Subject')),
         'date': _format_date(msg.get('Date')),
+        'date_ts': _date_ts(msg.get('Date')),
+        'unread': False,
         'text': text,
         'html': html,
+        'attachments': attachments,
     }
+
+
+def fetch_attachment(
+    conn: imaplib.IMAP4_SSL, uid: str, index: int
+) -> tuple[str, str, bytes]:
+    msg = _fetch_raw_message(conn, uid)
+    for part_index, part, filename in _iter_attachment_parts(msg):
+        if part_index == index:
+            payload = part.get_payload(decode=True)
+            if not isinstance(payload, bytes):
+                payload = b''
+            return filename, part.get_content_type(), payload
+    raise MailError('Вложение не найдено.')

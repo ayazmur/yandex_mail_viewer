@@ -1,24 +1,58 @@
 {% extends 'mail/base.html' %}
 
 {% block title %}{% if message %}{{ message.subject }}{% else %}Письмо{% endif %}{% endblock %}
+{% block topbar_title %}{{ folder_title }}{% endblock %}
+
+{% block topbar_actions %}
+    <a class="btn btn-ghost"
+       href="{% url 'mail:index' %}?folder={{ folder|urlencode }}&page={{ page }}">← К списку</a>
+{% endblock %}
 
 {% block content %}
-<header class="page-head">
-    <a class="link-btn"
-       href="{% url 'mail:index' %}?folder={{ folder|urlencode }}&page={{ page }}">← К списку</a>
-</header>
-
 {% if error %}
     <div class="alert alert-error">{{ error }}</div>
 {% elif message %}
     <article class="mail-view">
-        <h1 class="mail-subject-full">{{ message.subject }}</h1>
+        <header class="mail-head">
+            <span class="avatar avatar-lg color-{{ message.color }}">{{ message.avatar }}</span>
+            <div class="mail-head-main">
+                <h1 class="mail-subject-full">{{ message.subject|default:'(без темы)' }}</h1>
+                <div class="mail-subline">
+                    <span><strong>{{ message.from_name|default:message.from_addr }}</strong></span>
+                    {% if message.from_addr and message.from_addr != message.from_name %}
+                        <span class="muted small">&lt;{{ message.from_addr }}&gt;</span>
+                    {% endif %}
+                    <span class="muted small">{{ message.date }}</span>
+                </div>
+            </div>
+            <a class="btn btn-primary"
+               href="{% url 'mail:compose' %}?to={{ message.from_addr|urlencode }}&subject={{ reply_subject|urlencode }}">Ответить</a>
+        </header>
+
         <dl class="meta">
-            <dt>От</dt><dd>{{ message.from }}</dd>
             <dt>Кому</dt><dd>{{ message.to }}</dd>
             {% if message.cc %}<dt>Копия</dt><dd>{{ message.cc }}</dd>{% endif %}
-            <dt>Дата</dt><dd>{{ message.date }}</dd>
         </dl>
+
+        {% if message.attachments %}
+            <section class="attachments">
+                <div class="attachments-title">
+                    Вложения <span class="badge">{{ message.attachments|length }}</span>
+                </div>
+                <div class="attachment-list">
+                    {% for att in message.attachments %}
+                        <a class="attachment"
+                           href="{% url 'mail:attachment' message.uid att.index %}?folder={{ folder|urlencode }}">
+                            <span class="attachment-icon">↓</span>
+                            <span class="attachment-body">
+                                <span class="attachment-name">{{ att.filename }}</span>
+                                <span class="attachment-size">{{ att.size|filesizeformat }}</span>
+                            </span>
+                        </a>
+                    {% endfor %}
+                </div>
+            </section>
+        {% endif %}
 
         {% if message.html %}
             <iframe class="mail-frame" sandbox=""

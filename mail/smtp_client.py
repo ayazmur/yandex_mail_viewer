@@ -14,9 +14,17 @@ SMTP_PORT = 465
 
 logger = logging.getLogger(__name__)
 
+Attachment = tuple[str, str, bytes]
+
+
+def _clean_filename(value: str) -> str:
+    name = (value or '').replace('\\', '/').split('/')[-1]
+    name = ''.join(ch for ch in name if ch.isprintable()).strip()
+    return (name or 'attachment')[:200]
+
 
 def _send_once(email_address: str, password: str, message: EmailMessage) -> None:
-    with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=60) as smtp:
+    with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=120) as smtp:
         smtp.login(email_address, password)
         smtp.send_message(message)
 
@@ -27,14 +35,24 @@ def send_message(
     recipients: list[str],
     subject: str,
     body: str,
+    attachments: list[Attachment] | None = None,
 ) -> None:
-    """Отправляет простое текстовое письмо. Бросает MailError."""
+    """Отправляет текстовое письмо с вложениями. Бросает MailError."""
     message = EmailMessage()
     message['From'] = email_address
     message['To'] = ', '.join(recipients)
     message['Subject'] = subject
     message['Date'] = formatdate(localtime=True)
     message.set_content(body)
+
+    for filename, content_type, payload in attachments or []:
+        maintype, _, subtype = (content_type or '').partition('/')
+        message.add_attachment(
+            payload,
+            maintype=maintype or 'application',
+            subtype=subtype or 'octet-stream',
+            filename=_clean_filename(filename),
+        )
 
     candidates = [password]
     # Пароль приложения иногда копируется с пробелами между группами.

@@ -88,3 +88,10 @@ STATIC_URL = 'static/'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 MESSAGE_PAGE_SIZE = 25
+
+# Сколько последних писем папки забирать для склейки в треды.
+THREAD_HEADER_LIMIT = 3000
+
+# Вложения: ограничения приложения (Яндекс принимает письма до ~30 МБ).
+MAX_ATTACHMENTS = 10
+MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024

@@ -1,31 +1,68 @@
 {% extends 'mail/base.html' %}
 
 {% block title %}Новое письмо{% endblock %}
+{% block topbar_title %}Новое письмо{% endblock %}
+
+{% block topbar_actions %}
+    <a class="btn btn-ghost" href="{% url 'mail:index' %}">Отмена</a>
+{% endblock %}
 
 {% block content %}
-<header class="page-head">
-    <h1>Новое письмо</h1>
-</header>
-
 {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
 
-<form class="card compose" method="post" action="{% url 'mail:compose' %}">
+<form class="card compose" method="post" action="{% url 'mail:compose' %}" enctype="multipart/form-data">
     {% csrf_token %}
-    <label class="field">
-        <span>Кому</span>
-        <input type="text" name="to" value="{{ form.to }}" placeholder="one@yandex.ru, two@yandex.ru">
-    </label>
-    <label class="field">
-        <span>Тема</span>
-        <input type="text" name="subject" value="{{ form.subject }}">
-    </label>
-    <label class="field">
-        <span>Текст</span>
-        <textarea name="body" rows="14" required>{{ form.body }}</textarea>
-    </label>
+    <div class="field-row">
+        <label class="field-label" for="compose-to">Кому</label>
+        <input id="compose-to" type="text" name="to" value="{{ form.to }}"
+               placeholder="one@yandex.ru, two@yandex.ru">
+    </div>
+
+    <div class="field-row">
+        <label class="field-label" for="compose-subject">Тема</label>
+        <input id="compose-subject" type="text" name="subject" value="{{ form.subject }}"
+               placeholder="Тема письма">
+    </div>
+
+    <div class="field-row field-row-top">
+        <label class="field-label" for="compose-body">Текст</label>
+        <textarea id="compose-body" name="body" rows="14"
+                  placeholder="Текст письма">{{ form.body }}</textarea>
+    </div>
+
+    <div class="field-row field-row-top">
+        <span class="field-label">Файлы</span>
+        <div class="file-field">
+            <label class="file-picker">
+                <input type="file" name="attachments" multiple>
+                <span>Выбрать файлы</span>
+            </label>
+            <span class="muted small">
+                До {{ max_attachments }} файлов, суммарно до {{ max_attachment_mb }} МБ
+            </span>
+            <ul class="file-list" id="file-list"></ul>
+        </div>
+    </div>
+
     <div class="form-actions">
         <button type="submit" class="btn btn-primary">Отправить</button>
-        <a class="btn btn-secondary" href="{% url 'mail:index' %}">Отмена</a>
+        <a class="btn btn-ghost" href="{% url 'mail:index' %}">Отмена</a>
     </div>
 </form>
+
+<script>
+    (function () {
+        var input = document.querySelector('input[name="attachments"]');
+        var list = document.getElementById('file-list');
+        if (!input || !list) { return; }
+        input.addEventListener('change', function () {
+            list.innerHTML = '';
+            Array.prototype.forEach.call(input.files, function (file) {
+                var item = document.createElement('li');
+                item.textContent = file.name + ' — ' + Math.ceil(file.size / 1024) + ' КБ';
+                list.appendChild(item);
+            });
+        });
+    })();
+</script>
 {% endblock %}
