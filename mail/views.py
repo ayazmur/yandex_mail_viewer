@@ -89,8 +89,8 @@ def login_view(request: HttpRequest) -> HttpResponse:
             return redirect(_safe_next(request.GET.get('next')))
         return _login_page(request)
 
-    email_address = (request.POST.get('email') or '').strip()
-    password = request.POST.get('password') or ''
+    email_address = imap_client.normalize_account(request.POST.get('email') or '')
+    password = (request.POST.get('password') or '').strip()
     if not email_address or not password:
         return _login_page(request, 'Укажите адрес и пароль приложения.', email_address)
 

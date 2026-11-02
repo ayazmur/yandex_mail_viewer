@@ -8,6 +8,7 @@ from __future__ import annotations
 import base64
 import email
 import imaplib
+import logging
 import re
 from email.header import decode_header, make_header
 from email.message import Message
@@ -16,6 +17,8 @@ from typing import Any
 
 IMAP_HOST = 'imap.yandex.ru'
 IMAP_PORT = 993
+
+logger = logging.getLogger(__name__)
 
 _UTF7_BLOCK_RE = re.compile(r'&([^&-]*)-')
 _FOLDER_RE = re.compile(r'^\((?P<flags>[^)]*)\)\s+"(?P<delim>[^"]*)"\s+(?P<name>.*)$')
@@ -56,23 +59,84 @@ def _quote_mailbox(name: str) -> str:
     return '"' + name.replace('\\', '\\\\').replace('"', '\\"') + '"'
 
 
-def connect(email_address: str, password: str) -> imaplib.IMAP4_SSL:
-    """Открывает IMAP-соединение и логинится. Бросает MailError."""
-    try:
-        conn = imaplib.IMAP4_SSL(IMAP_HOST, IMAP_PORT, timeout=30)
-    except OSError as exc:
-        raise MailError('Не удалось подключиться к imap.yandex.ru.', 'network') from exc
+def normalize_account(value: str) -> str:
+    """Приводит адрес к виду login@yandex.ru, если домен не указан."""
+    value = (value or '').strip()
+    if value and '@' not in value:
+        value += '@yandex.ru'
+    return value
+
+
+def _server_reason(exc: Exception) -> str:
+    text = str(exc).strip()
+    if len(text) >= 3 and text[0] == 'b' and text[1] in ("'", '"'):
+        text = text[2:-1]
+    text = text.replace('\\r', ' ').replace('\\n', ' ')
+    return text[:300]
+
+
+def _open_connection() -> imaplib.IMAP4_SSL:
+    last_error: Exception | None = None
+    for _attempt in range(2):
+        try:
+            return imaplib.IMAP4_SSL(IMAP_HOST, IMAP_PORT, timeout=30)
+        except (OSError, imaplib.IMAP4.error) as exc:
+            last_error = exc
+    logger.warning(f'IMAP: соединение с {IMAP_HOST} не установлено: {last_error}')
+    raise MailError(
+        'Не удалось связаться с imap.yandex.ru: соединение закрывается. '
+        'Попробуйте ещё раз через минуту.',
+        'network',
+    ) from last_error
+
+
+def _connect_once(email_address: str, password: str) -> imaplib.IMAP4_SSL:
+    conn = _open_connection()
     try:
         conn.login(email_address, password)
+    except imaplib.IMAP4.abort as exc:
+        close_quietly(conn)
+        logger.warning(f'IMAP: сервер оборвал соединение при входе: {exc}')
+        raise MailError('Соединение с imap.yandex.ru оборвалось. Попробуйте ещё раз.', 'network') from exc
     except imaplib.IMAP4.error as exc:
+        close_quietly(conn)
+        reason = _server_reason(exc)
+        logger.warning(f'IMAP: Яндекс отклонил вход для {email_address}: {reason}')
+        detail = f' Ответ сервера: {reason}.' if reason else ''
         raise MailError(
-            'Яндекс не принял логин или пароль. Нужен пароль приложения для «Почты» '
-            '(id.yandex.ru → Безопасность → Пароли приложений).',
+            'Яндекс не принял логин или пароль. Проверьте: пароль приложения типа '
+            '«Почта» (без пробелов), в настройках Почты включён доступ по IMAP '
+            '(«Почтовые программы»), логин — полный адрес ящика.' + detail,
             'auth',
         ) from exc
     except OSError as exc:
-        raise MailError('Не удалось подключиться к imap.yandex.ru.', 'network') from exc
+        close_quietly(conn)
+        logger.warning(f'IMAP: обрыв соединения при входе: {exc}')
+        raise MailError('Соединение с imap.yandex.ru оборвалось. Попробуйте ещё раз.', 'network') from exc
     return conn
+
+
+def connect(email_address: str, password: str) -> imaplib.IMAP4_SSL:
+    """Открывает IMAP-соединение и логинится. Бросает MailError."""
+    email_address = normalize_account(email_address)
+    password = (password or '').strip()
+
+    candidates = [password]
+    # Пароли приложений Яндекса показываются группами; при копировании в них
+    # попадают пробелы, поэтому при отказе пробуем ещё раз без них.
+    without_spaces = ''.join(password.split())
+    if without_spaces != password:
+        candidates.append(without_spaces)
+
+    last_error: MailError | None = None
+    for candidate in candidates:
+        try:
+            return _connect_once(email_address, candidate)
+        except MailError as exc:
+            last_error = exc
+            if exc.kind != 'auth':
+                raise
+    raise last_error
 
 
 def close_quietly(conn: imaplib.IMAP4_SSL | None) -> None:
