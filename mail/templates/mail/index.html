@@ -1,0 +1,49 @@
+{% extends 'mail/base.html' %}
+
+{% block title %}{{ folder_title }} — Почта{% endblock %}
+
+{% block content %}
+<header class="page-head">
+    <div>
+        <h1>{{ folder_title }}</h1>
+        <div class="muted small">Всего писем: {{ total }}</div>
+    </div>
+    <a class="btn btn-primary" href="{% url 'mail:compose' %}">Написать</a>
+</header>
+
+{% if flash %}<div class="alert alert-success">{{ flash }}</div>{% endif %}
+{% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+
+{% if messages %}
+    <div class="mail-list">
+        {% for item in messages %}
+            <a class="mail-row"
+               href="{% url 'mail:message' item.uid %}?folder={{ folder|urlencode }}&page={{ page }}">
+                <span class="mail-from">{{ item.from }}</span>
+                <span class="mail-subject">{{ item.subject }}</span>
+                <span class="mail-date">{{ item.date }}</span>
+            </a>
+        {% endfor %}
+    </div>
+{% elif not error %}
+    <div class="empty">В этой папке нет писем.</div>
+{% endif %}
+
+{% if pages > 1 %}
+    <nav class="pager">
+        {% if page > 1 %}
+            <a class="btn btn-secondary"
+               href="?folder={{ folder|urlencode }}&page={{ page|add:'-1' }}">← Новее</a>
+        {% else %}
+            <span class="btn btn-secondary disabled">← Новее</span>
+        {% endif %}
+        <span class="pager-info">Страница {{ page }} из {{ pages }}</span>
+        {% if page < pages %}
+            <a class="btn btn-secondary"
+               href="?folder={{ folder|urlencode }}&page={{ page|add:'1' }}">Старее →</a>
+        {% else %}
+            <span class="btn btn-secondary disabled">Старее →</span>
+        {% endif %}
+    </nav>
+{% endif %}
+{% endblock %}

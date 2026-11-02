@@ -1,0 +1,41 @@
+{% load static %}<!doctype html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}Почта{% endblock %}</title>
+    <link rel="stylesheet" href="{% static 'mail/style.css' %}">
+</head>
+<body>
+<div class="app">
+    <aside class="sidebar">
+        <a class="brand" href="{% url 'mail:index' %}">Почта&nbsp;<span>Яндекс</span></a>
+
+        {% if email %}
+            <div class="account" title="{{ email }}">{{ email }}</div>
+            <a class="btn btn-primary btn-block" href="{% url 'mail:compose' %}">Написать</a>
+        {% endif %}
+
+        <nav class="folders">
+            {% for item in folders %}
+                <a class="folder{% if item.name == folder %} active{% endif %}"
+                   href="{% url 'mail:index' %}?folder={{ item.name|urlencode }}">{{ item.title }}</a>
+            {% endfor %}
+        </nav>
+
+        <div class="sidebar-footer">
+            {% if email %}
+                <form method="post" action="{% url 'mail:logout' %}">
+                    {% csrf_token %}
+                    <button type="submit" class="link-btn">Выйти</button>
+                </form>
+            {% endif %}
+        </div>
+    </aside>
+
+    <main class="content">
+        {% block content %}{% endblock %}
+    </main>
+</div>
+</body>
+</html>

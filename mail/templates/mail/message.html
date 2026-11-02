@@ -1,0 +1,31 @@
+{% extends 'mail/base.html' %}
+
+{% block title %}{% if message %}{{ message.subject }}{% else %}Письмо{% endif %}{% endblock %}
+
+{% block content %}
+<header class="page-head">
+    <a class="link-btn"
+       href="{% url 'mail:index' %}?folder={{ folder|urlencode }}&page={{ page }}">← К списку</a>
+</header>
+
+{% if error %}
+    <div class="alert alert-error">{{ error }}</div>
+{% elif message %}
+    <article class="mail-view">
+        <h1 class="mail-subject-full">{{ message.subject }}</h1>
+        <dl class="meta">
+            <dt>От</dt><dd>{{ message.from }}</dd>
+            <dt>Кому</dt><dd>{{ message.to }}</dd>
+            {% if message.cc %}<dt>Копия</dt><dd>{{ message.cc }}</dd>{% endif %}
+            <dt>Дата</dt><dd>{{ message.date }}</dd>
+        </dl>
+
+        {% if message.html %}
+            <iframe class="mail-frame" sandbox=""
+                    src="{% url 'mail:raw' message.uid %}?folder={{ folder|urlencode }}"></iframe>
+        {% else %}
+            <pre class="mail-text">{{ message.text }}</pre>
+        {% endif %}
+    </article>
+{% endif %}
+{% endblock %}

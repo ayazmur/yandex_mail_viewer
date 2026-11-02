@@ -1,0 +1,15 @@
+{
+  "name": "yandex-mail-viewer",
+  "image": "mcr.microsoft.com/devcontainers/python:3.12",
+  "customizations": {
+    "vscode": {
+      "forwardPorts": [8000],
+      "portsAttributes": {
+        "8000": {
+          "onAutoForward": "notify"
+        }
+      }
+    }
+  },
+  "postCreateCommand": "pip install -r requirements.txt"
+}

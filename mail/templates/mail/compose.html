@@ -1,0 +1,31 @@
+{% extends 'mail/base.html' %}
+
+{% block title %}Новое письмо{% endblock %}
+
+{% block content %}
+<header class="page-head">
+    <h1>Новое письмо</h1>
+</header>
+
+{% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+
+<form class="card compose" method="post" action="{% url 'mail:compose' %}">
+    {% csrf_token %}
+    <label class="field">
+        <span>Кому</span>
+        <input type="text" name="to" value="{{ form.to }}" placeholder="one@yandex.ru, two@yandex.ru">
+    </label>
+    <label class="field">
+        <span>Тема</span>
+        <input type="text" name="subject" value="{{ form.subject }}">
+    </label>
+    <label class="field">
+        <span>Текст</span>
+        <textarea name="body" rows="14" required>{{ form.body }}</textarea>
+    </label>
+    <div class="form-actions">
+        <button type="submit" class="btn btn-primary">Отправить</button>
+        <a class="btn btn-secondary" href="{% url 'mail:index' %}">Отмена</a>
+    </div>
+</form>
+{% endblock %}
